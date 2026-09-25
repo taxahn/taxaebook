@@ -1,0 +1,6 @@
+/target
+/covers
+/dist
+.DS_Store
+/tests/fixtures/local/*
+!/tests/fixtures/local/.gitkeep
