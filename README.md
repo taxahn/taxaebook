@@ -1,6 +1,8 @@
 # taxaebook
 
-用 Rust 编写的 EPUB 封面提取 CLI。直接保存书中声明的原始图片，不重新编码。
+自用 ebook cli 工具，使用 rust 实现，后续想到啥添加啥
+
+以下为 AI 撰写
 
 ## 使用
 
