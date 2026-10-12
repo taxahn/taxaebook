@@ -1,52 +1,110 @@
 # taxaebook
 
-自用 ebook cli 工具，使用 rust 实现，后续想到啥添加啥
+自用的 Rust 电子书 CLI 工具集。目前包含两个功能，共用一个 `taxaebook` 命令：
 
-以下为 AI 撰写
+| 命令 | 功能 | 状态 |
+| --- | --- | --- |
+| `taxaebook cover` | 从 EPUB、目录或压缩包提取原始封面图片 | 可用 |
+| `taxaebook translate` | 按章节切 PDF、调用 MinerU OCR、使用 DeepSeek 翻译 Markdown | Demo |
 
-## 使用
+## 安装
 
-```sh
-taxaebook book.epub
-taxaebook first.epub second.epub -o output
-taxaebook ./books
-taxaebook books.zip books.tar books.tar.gz books.tgz -o output
-taxaebook book.epub ./books archive.zip -o output
-taxaebook --help
-```
-
-路径有空格时加引号。文件夹默认递归扫描，不跟随目录中的符号链接；扩展名不区分大小写。同一次运行的重复文件路径会去重。
-
-输出默认保存到当前工作目录的 `covers/`，命名为 `cover-书籍文件名.jpg` 等，保持原始图片格式。同名自动加 `-2`、`-3`，不覆盖已有文件。为适配 Windows，名称中的特殊字符会替换为下划线，书名最多保留 60 个字符。
-
-支持 EPUB 2 的 cover 元数据和 EPUB 3 的 cover-image 声明，图片类型包括 JPEG、PNG、GIF、WebP、SVG、AVIF、BMP、TIFF。未声明封面或资源损坏会报错，不猜测正文插图作为封面。
-
-压缩包支持 ZIP（Stored / Deflate）、TAR、TAR.GZ、TGZ，读取包内任意目录下的 EPUB；不递归打开包内的其他压缩包。RAR、7z、密码保护和 DRM 解密不支持。压缩包中的 EPUB 逐本写入自动清理的临时文件，包内路径不会解压到文件系统；封面图片由解析库读入内存。
-
-批量处理时，单本 EPUB 失败后继续处理其他书籍。无法继续解析的压缩包会终止该压缩包的读取，继续处理其他输入。标准输出记录保存路径，标准错误记录错误和汇总。退出码：`0` 全部成功，`1` 处理失败或未找到 EPUB，`2` 命令行参数错误。
-
-## 编译和安装
-
-安装 Rust stable 后，在项目目录执行：
+安装 Rust stable，在项目目录执行：
 
 ```sh
-cargo build --release --locked
 cargo install --path . --locked
 ```
 
-可执行文件在 `target/release/taxaebook`；Windows 上为 `target/release/taxaebook.exe`。安装后可直接调用 `taxaebook`。
+安装后可以直接使用 `taxaebook`。若只想在项目内编译：
 
-GitHub Actions 在 push、PR 或手动触发时，分别运行测试并生成 Windows x64、Linux x64/ARM64、macOS Intel/Apple Silicon 的可执行文件。在对应运行的 Artifacts 中下载；Linux 构建基于 Ubuntu 24.04（需要兼容的 glibc）。每个平台在对应 runner 原生构建，无须用户安装 Rust 即可运行下载的程序。工作流只上传构建产物，不自动发布 Release。
+```sh
+cargo build --release --locked
+./target/release/taxaebook --help
+```
 
-## 开发和测试
+下文以安装后的命令为例；未安装时，将 `taxaebook` 换成 `./target/release/taxaebook`。Windows 的可执行文件为 `target/release/taxaebook.exe`。
+
+也可以从 GitHub Actions 对应运行的 Artifacts 下载构建产物。工作流配置了 Windows x64、Linux x64/ARM64、macOS Intel/Apple Silicon 的原生构建；Linux 基于 Ubuntu 24.04，需要兼容的 glibc。工作流不自动发布 Release，各平台是否通过以实际 CI 结果为准。
+
+## 封面提取
+
+```sh
+taxaebook cover book.epub
+taxaebook cover first.epub second.epub -o covers
+taxaebook cover ./books archive.zip -o covers
+```
+
+默认输出到 `covers/`，保持图片原始字节和格式。同名自动编号，不覆盖已有文件。目录递归扫描，压缩包支持 ZIP、TAR、TAR.GZ、TGZ。
+
+支持格式、文件命名和失败行为见 [封面提取文档](docs/cover.md)。
+
+## AI 辅助翻译
+
+OCR 和翻译分别运行，调整术语或重试翻译时可以复用 OCR 结果。先按照 [API 配置说明](docs/translation.md#api-配置) 设置 MinerU Token 和 DeepSeek Key。
+
+可以先用项目中的小段 Markdown 测试翻译，这一步只需要 DeepSeek Key：
+
+```sh
+taxaebook translate markdown examples/translation/source.md \
+  -o dist/demo/sample \
+  --glossary examples/translation/glossary.json --review
+```
+
+从 PDF 开始则分三步：
+
+```sh
+taxaebook translate prepare book.pdf -o dist/demo/prepared
+taxaebook translate ocr dist/demo/prepared -o dist/demo/ocr
+taxaebook translate markdown dist/demo/ocr/source.md -o dist/demo/zh --review
+```
+
+`prepare` 默认按第 1 层 PDF 书签切章；无书签时用 `--chapters` 提供章节表，或用 `--whole` 显式处理整本小 PDF。新任务的输出目录必须不存在。最终译文为 `dist/demo/zh/translated.md`。
+
+`--review` 启用逐块审校，初稿与审校结果都会保存。中断后沿用原命令和输出目录，加上 `--resume` 可复用已保存响应继续执行。翻译使用 DeepSeek V4.1 Flash，API 模型名为 `deepseek-flash`。新术语先保存为建议，可检查后合并到长期术语库。
+
+完整流程、章节表、术语库、参数与当前限制见 [辅助翻译文档](docs/translation.md)。
+
+## 项目结构
+
+```text
+src/
+  main.rs                  总入口，分发 cover / translate
+  cover/
+    cli.rs                 封面参数、目录扫描、去重和批量汇总
+    input.rs               EPUB 与压缩包读取
+    extract.rs             封面提取、命名和保存
+  translation/
+    cli.rs                 翻译流程的子命令和参数
+    pdf.rs                 书签、章节表和 PDF 切分
+    ocr.rs                 MinerU API、原始结果和 Markdown 合并
+    llm.rs                 DeepSeek 翻译、上下文和审校
+    markdown.rs            Markdown 分块与链接重定位
+    glossary.rs            可复用术语库
+    mod.rs                 模块入口及内部文件、HTTP 辅助函数
+tests/
+  cli.rs                   总入口和命令帮助测试
+  cover_cli.rs             封面端到端测试
+  translation_cli.rs       翻译端到端测试（本地模拟 API）
+examples/translation/      Markdown、术语库和章节表示例
+docs/                      两个功能的详细使用文档
+```
+
+两个功能分别封装在自己的模块中，总入口只负责命令分发。封面解析使用 epub，PDF 处理使用 lopdf，Markdown 处理使用 pulldown-cmark，HTTP 使用 reqwest。
+
+## 开发与验证
 
 ```sh
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-cargo run -- tests/fixtures/local -o covers
+cargo build --release --locked
 ```
 
-自动测试在临时目录生成 EPUB 2/3 和压缩包，不依赖真实书籍。用户提供的两本样书移到了 `tests/fixtures/local/`，被 Git 忽略，不随仓库或 CI 分发。
+无需安装即可运行：
 
-模块：`src/input.rs` 负责输入格式与压缩包遍历，`src/cover.rs` 负责 EPUB 封面与安全保存，`src/main.rs` 负责 CLI 和批量汇总。解析复用 [epub](https://docs.rs/epub/)，压缩包使用 zip、tar、flate2，命令行使用 clap。
+```sh
+cargo run -- cover book.epub
+cargo run -- translate --help
+```
+
+自动测试动态生成 EPUB、压缩包和 PDF，用本机回环 HTTP 服务模拟 MinerU、DeepSeek，不依赖真实 API、密钥或本地样书。本地样书放在被 Git 忽略的 `tests/fixtures/local/`；生成的封面放在 `covers/`，翻译实验结果建议放在 `dist/`，均不提交到 Git。
